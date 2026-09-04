@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease
+
+      - name: Sign Release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            ALIAS="$KEY_ALIAS"
+            STOREPASS="$KEYSTORE_PASSWORD"
+            KEYPASS="$KEY_PASSWORD"
+          else
+            keytool -genkeypair -v -keystore release.keystore -alias x-release -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=X, OU=X, O=X, L=Unknown, ST=Unknown, C=US"
+            ALIAS="x-release"
+            STOREPASS="android"
+            KEYPASS="android"
+          fi
+
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -n 1)
+          $APKSIGNER sign --ks release.keystore --ks-key-alias "$ALIAS" --ks-pass "pass:$STOREPASS" --key-pass "pass:$KEYPASS" --out X.apk app/build/outputs/apk/release/app-release-unsigned.apk
+          $APKSIGNER verify --verbose X.apk
+
+      - name: Determine Release Tag
+        run: |
+          echo "RELEASE_TAG=${{ github.event.inputs.tag_name }}" >> $GITHUB_ENV
+
+      - name: Prepare Release Artifacts
+        run: |
+          cp X.apk "X-${{ env.RELEASE_TAG }}.apk"
+
+      - name: Upload APK to workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: X-apk
+          path: X.apk
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Release ${{ env.RELEASE_TAG }}
+          files: |
+            X.apk
+            X-${{ env.RELEASE_TAG }}.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
