@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootContainer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:overScrollMode="never" />
+
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2.5dp"
+        android:layout_gravity="top"
+        android:indeterminate="false"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#1D9BF0"
+        android:progressBackgroundTint="#00000000"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/errorView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginBottom="24dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_x_logo" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="Connection Error"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            android:gravity="center"
+            android:text="Unable to reach X. Check your internet connection and try again."
+            android:textColor="#71767B"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnRetry"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:backgroundTint="#EFF3F4"
+            android:text="Retry"
+            android:textColor="#0F1419"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/splashView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000">
+
+        <ImageView
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_gravity="center"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_x_logo" />
+
+    </FrameLayout>
+
+</FrameLayout>
