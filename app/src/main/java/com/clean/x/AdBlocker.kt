@@ -1,4 +1,4 @@
-package com.example.x
+package com.clean.x
 
 import android.webkit.WebResourceResponse
 import java.io.ByteArrayInputStream

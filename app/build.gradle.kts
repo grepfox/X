@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-    namespace = "com.example.x"
+    namespace = "com.clean.x"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.example.x"
+        applicationId = "com.clean.x"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
