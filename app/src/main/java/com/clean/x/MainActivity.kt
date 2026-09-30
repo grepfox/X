@@ -1,4 +1,4 @@
-package com.example.x
+package com.clean.x
 
 import android.annotation.SuppressLint
 import android.app.AlertDialog
