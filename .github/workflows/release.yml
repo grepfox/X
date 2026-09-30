@@ -59,10 +59,6 @@ jobs:
         run: |
           echo "RELEASE_TAG=${{ github.event.inputs.tag_name }}" >> $GITHUB_ENV
 
-      - name: Prepare Release Artifacts
-        run: |
-          cp X.apk "X-${{ env.RELEASE_TAG }}.apk"
-
       - name: Upload APK to workflow artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -76,9 +72,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Release ${{ env.RELEASE_TAG }}
-          files: |
-            X.apk
-            X-${{ env.RELEASE_TAG }}.apk
+          files: X.apk
           generate_release_notes: true
           draft: false
           prerelease: false
