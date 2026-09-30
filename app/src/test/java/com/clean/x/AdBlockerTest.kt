@@ -1,4 +1,4 @@
-package com.example.x
+package com.clean.x
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
