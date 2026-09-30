@@ -22,4 +22,44 @@ class AdBlockerTest {
         assertFalse(AdBlocker.isAdUrl("https://abs.twimg.com/responsive-web/client-web/main.js"))
         assertFalse(AdBlocker.isAdUrl("https://pbs.twimg.com/media/sample.jpg"))
     }
+
+    @Test
+    fun testIsAdUrl_allowsAuthEndpoints() {
+        assertFalse(AdBlocker.isAdUrl("https://accounts.google.com/gsi/client"))
+        assertFalse(AdBlocker.isAdUrl("https://accounts.google.co.in/signin/v2/identifier"))
+        assertFalse(AdBlocker.isAdUrl("https://smartlock.google.com/auth"))
+        assertFalse(AdBlocker.isAdUrl("https://content.googleapis.com/oauth2/v2/auth"))
+        assertFalse(AdBlocker.isAdUrl("https://ssl.gstatic.com/accounts/ui/avatar_2x.png"))
+        assertFalse(AdBlocker.isAdUrl("https://x.com/i/flow/login"))
+        assertFalse(AdBlocker.isAdUrl("https://appleid.apple.com/auth/authorize"))
+    }
+
+    @Test
+    fun testIsInternalOrAuthHost_allowsAuthAndInternalDomains() {
+        assertTrue(MainActivity.isInternalOrAuthHost("x.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("api.x.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("twitter.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("t.co"))
+        assertTrue(MainActivity.isInternalOrAuthHost("pbs.twimg.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("accounts.google.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("accounts.google.co.in"))
+        assertTrue(MainActivity.isInternalOrAuthHost("accounts.google.co.uk"))
+        assertTrue(MainActivity.isInternalOrAuthHost("google.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("google.co.in"))
+        assertTrue(MainActivity.isInternalOrAuthHost("smartlock.google.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("apis.google.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("oauth2.googleapis.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("ssl.gstatic.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("accounts.youtube.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("lh3.googleusercontent.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("appleid.apple.com"))
+        assertTrue(MainActivity.isInternalOrAuthHost("apple.com"))
+    }
+
+    @Test
+    fun testIsInternalOrAuthHost_rejectsExternalDomains() {
+        assertFalse(MainActivity.isInternalOrAuthHost("github.com"))
+        assertFalse(MainActivity.isInternalOrAuthHost("facebook.com"))
+        assertFalse(MainActivity.isInternalOrAuthHost("nytimes.com"))
+    }
 }

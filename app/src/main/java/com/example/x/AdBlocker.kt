@@ -26,12 +26,20 @@ object AdBlocker {
     )
 
     fun isAdUrl(url: String): Boolean {
-        if (url.contains("/flow/login") ||
-            url.contains("/onboarding/") ||
-            url.contains("accounts.google.com") ||
-            url.contains("/gsi/") ||
-            url.contains("/oauth") ||
-            url.contains("appleid.apple.com")
+        val lowerUrl = url.lowercase()
+        if (lowerUrl.contains("/flow/login") ||
+            lowerUrl.contains("/onboarding/") ||
+            lowerUrl.contains("/i/flow/") ||
+            lowerUrl.contains("accounts.google.") ||
+            lowerUrl.contains("smartlock.google.") ||
+            lowerUrl.contains("apis.google.com") ||
+            lowerUrl.contains("oauth") ||
+            lowerUrl.contains("/gsi/") ||
+            lowerUrl.contains("gstatic.com") ||
+            lowerUrl.contains("googleapis.com") ||
+            lowerUrl.contains("googleusercontent.com") ||
+            lowerUrl.contains("appleid.apple.com") ||
+            lowerUrl.contains("apple.com")
         ) {
             return false
         }

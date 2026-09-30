@@ -1,3 +1,17 @@
 <resources>
     <string name="app_name">X</string>
+    <string name="save_image">Save image</string>
+    <string name="copy_image_link">Copy image link</string>
+    <string name="save_video">Save video</string>
+    <string name="copy_video_link">Copy video link</string>
+    <string name="save_media">Save media</string>
+    <string name="copy_link">Copy link</string>
+    <string name="link_copied">Link copied to clipboard</string>
+    <string name="downloading_image">Downloading image…</string>
+    <string name="downloading_video">Downloading video…</string>
+    <string name="downloading_file">Downloading file…</string>
+    <string name="download_failed">Download failed</string>
+    <string name="saving_media">Saving media…</string>
+    <string name="saved_to_downloads">Saved to Downloads</string>
+    <string name="storage_permission_required">Storage permission required to download</string>
 </resources>
