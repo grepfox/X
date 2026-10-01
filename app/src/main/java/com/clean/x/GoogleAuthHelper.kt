@@ -153,88 +153,6 @@ object GoogleAuthHelper {
                     console.log('[CleanX-UnhandledRejection] ' + (e.reason ? (e.reason.message || e.reason) + (e.reason.stack ? '\n' + e.reason.stack : '') : ''));
                 });
             } catch(e) {}
-
-            // 3. Deep hook into Google GSI initialization to capture callback and client instance
-            function hookIdObject(idObj) {
-                if (!idObj || idObj.__cleanx_hooked) return;
-                idObj.__cleanx_hooked = true;
-
-                let originalInit = idObj.initialize;
-                function wrapInit(fn) {
-                    return function(config) {
-                        console.log('[CleanX] Captured google.accounts.id.initialize!');
-                        if (config && typeof config.callback === 'function') {
-                            window.__x_gsi_callback = config.callback;
-                            console.log('[CleanX] Successfully hooked GSI callback!');
-                        }
-                        if (fn) {
-                            return fn.apply(this, arguments);
-                        }
-                    };
-                }
-
-                try {
-                    Object.defineProperty(idObj, 'initialize', {
-                        configurable: true,
-                        enumerable: true,
-                        get: function() { return originalInit; },
-                        set: function(newFn) {
-                            originalInit = wrapInit(newFn);
-                        }
-                    });
-                    if (originalInit) {
-                        idObj.initialize = originalInit;
-                    }
-                } catch(e) {
-                    if (originalInit) {
-                        idObj.initialize = wrapInit(originalInit);
-                    }
-                }
-            }
-
-            try {
-                window.google = window.google || {};
-                let _accounts = window.google.accounts || {};
-                let _id = _accounts.id || {};
-
-                hookIdObject(_id);
-
-                Object.defineProperty(_accounts, 'id', {
-                    configurable: true,
-                    enumerable: true,
-                    get: function() { return _id; },
-                    set: function(val) {
-                        _id = val;
-                        hookIdObject(_id);
-                    }
-                });
-
-                Object.defineProperty(window.google, 'accounts', {
-                    configurable: true,
-                    enumerable: true,
-                    get: function() { return _accounts; },
-                    set: function(val) {
-                        _accounts = val;
-                        if (_accounts) {
-                            if (_accounts.id) {
-                                _id = _accounts.id;
-                                hookIdObject(_id);
-                            }
-                            try {
-                                Object.defineProperty(_accounts, 'id', {
-                                    configurable: true,
-                                    enumerable: true,
-                                    get: function() { return _id; },
-                                    set: function(idVal) {
-                                        _id = idVal;
-                                        hookIdObject(_id);
-                                    }
-                                });
-                            } catch(e) {}
-                        }
-                    }
-                });
-            } catch(e) {}
         })();
     """.trimIndent()
 
@@ -323,29 +241,6 @@ object GoogleAuthHelper {
         return """
             (function() {
                 let cred = '$credential';
-                let called = false;
-
-                // Strategy 1: Captured initialize callback
-                if (typeof window.__x_gsi_callback === 'function') {
-                    try {
-                        console.log("[CleanX] Invoking window.__x_gsi_callback with Google credential");
-                        window.__x_gsi_callback({ credential: cred, select_by: 'btn' });
-                        called = true;
-                    } catch(e) {
-                        console.error("[CleanX] Error in __x_gsi_callback:", e);
-                    }
-                }
-
-                // Strategy 2: Google GSI Client instance callback
-                if (!called && window.__G_ID_CLIENT__ && typeof window.__G_ID_CLIENT__.callback === 'function') {
-                    try {
-                        console.log("[CleanX] Invoking window.__G_ID_CLIENT__.callback with Google credential");
-                        window.__G_ID_CLIENT__.callback.call(window.__G_ID_CLIENT__, { credential: cred, select_by: 'btn' });
-                        called = true;
-                    } catch(e) {
-                        console.error("[CleanX] Error in __G_ID_CLIENT__.callback:", e);
-                    }
-                }
 
                 function buildWorkingSsoUrl(idToken) {
                     let payload = JSON.stringify({
@@ -365,20 +260,9 @@ object GoogleAuthHelper {
                     return 'https://x.com/i/jf/onboarding/web?mode=sso&input_flow_data=' + encodeURIComponent(encoded);
                 }
 
-                if (!called) {
-                    let ssoUrl = buildWorkingSsoUrl(cred);
-                    console.log("[CleanX] Direct navigation to working SSO URL:", ssoUrl);
-                    window.location.assign(ssoUrl);
-                } else {
-                    setTimeout(function() {
-                        let path = window.location.pathname;
-                        if (path.includes('login') || path === '/' || path.includes('/sso')) {
-                            let ssoUrl = buildWorkingSsoUrl(cred);
-                            console.log("[CleanX] Callback check after delay, navigating to working SSO URL:", ssoUrl);
-                            window.location.assign(ssoUrl);
-                        }
-                    }, 1200);
-                }
+                let ssoUrl = buildWorkingSsoUrl(cred);
+                console.log("[CleanX] Direct navigation to working SSO URL:", ssoUrl);
+                window.location.assign(ssoUrl);
             })();
         """.trimIndent()
     }
