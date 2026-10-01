@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
     private var isFirstLoad = true
     private var popupDialog: Dialog? = null
     private var currentPopupWebView: WebView? = null
+    private var isCompletingGoogleSignIn = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
 
@@ -461,6 +462,7 @@ class MainActivity : ComponentActivity() {
                 AppLogger.log(TAG, "PageStarted: $url")
                 progressBar.visibility = View.VISIBLE
                 errorView.visibility = View.GONE
+                view?.evaluateJavascript(GoogleAuthHelper.MAIN_GSI_HOOK_SCRIPT, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -483,6 +485,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                view?.evaluateJavascript(GoogleAuthHelper.MAIN_GSI_HOOK_SCRIPT, null)
                 view?.evaluateJavascript(AdBlocker.AD_BLOCK_SCRIPT, null)
                 view?.evaluateJavascript(MEDIA_INSPECTION_SCRIPT, null)
 
@@ -582,6 +585,7 @@ class MainActivity : ComponentActivity() {
                 resultMsg: Message?
             ): Boolean {
                 AppLogger.log(TAG, "onCreateWindow requested (isDialog=$isDialog, userGesture=$isUserGesture)")
+                isCompletingGoogleSignIn = false
                 popupDialog?.dismiss()
                 currentPopupWebView?.destroy()
                 val popupWebView = WebView(this@MainActivity)
@@ -590,11 +594,37 @@ class MainActivity : ComponentActivity() {
                 popupWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(popupWebView, true)
 
+                popupWebView.addJavascriptInterface(object {
+                    @JavascriptInterface
+                    fun onGoogleCredential(credential: String) {
+                        mainHandler.post {
+                            handleGoogleCredential(credential)
+                        }
+                    }
+                }, "AndroidGoogleBridge")
+
                 popupWebView.webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(v: WebView?, url: String?, favicon: Bitmap?) {
+                        super.onPageStarted(v, url, favicon)
+                        AppLogger.log(TAG, "Popup started: $url")
+                        v?.evaluateJavascript(GoogleAuthHelper.POPUP_BRIDGE_SCRIPT, null)
+                    }
+
                     override fun onPageFinished(v: WebView?, url: String?) {
                         super.onPageFinished(v, url)
                         CookieManager.getInstance().flush()
                         AppLogger.log(TAG, "Popup finished: $url")
+                        v?.evaluateJavascript(GoogleAuthHelper.POPUP_BRIDGE_SCRIPT, null)
+
+                        if (url != null && (url.contains("gsi/transform") || url.contains("accounts.google.com"))) {
+                            extractGoogleCredentialDirectly(v)
+                            mainHandler.postDelayed({
+                                extractGoogleCredentialDirectly(v)
+                            }, 350)
+                            mainHandler.postDelayed({
+                                extractGoogleCredentialDirectly(v)
+                            }, 800)
+                        }
 
                         if (hasValidAuthToken()) {
                             AppLogger.log(TAG, "Popup has auth_token cookie, handing off to main view")
@@ -938,8 +968,83 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun handleGoogleCredential(credential: String) {
+        if (isCompletingGoogleSignIn) return
+        val cleanJwt = credential.trim('"', ' ', '\n', '\r')
+        if (!cleanJwt.startsWith("eyJ") || cleanJwt.split('.').size < 3) {
+            return
+        }
+
+        isCompletingGoogleSignIn = true
+        AppLogger.log(TAG, "Google credential verified! (JWT len=${cleanJwt.length})")
+
+        mainHandler.post {
+            try {
+                popupDialog?.dismiss()
+                popupDialog = null
+                currentPopupWebView?.destroy()
+                currentPopupWebView = null
+            } catch (e: Exception) {
+                AppLogger.log(TAG, "Popup dismiss error: ${e.message}")
+            }
+
+            deliverGoogleCredentialToMainView(cleanJwt)
+        }
+    }
+
+    private fun deliverGoogleCredentialToMainView(jwt: String) {
+        val js = GoogleAuthHelper.buildDeliverCredentialJs(jwt)
+        AppLogger.log(TAG, "Delivering Google credential to X main view...")
+        webView.evaluateJavascript(js) { res ->
+            AppLogger.log(TAG, "Google credential delivery eval result: $res")
+        }
+    }
+
+    private fun extractGoogleCredentialDirectly(popupView: WebView?) {
+        if (popupView == null || isCompletingGoogleSignIn) return
+        val js = """
+            (function() {
+                try {
+                    let html = document.documentElement ? document.documentElement.innerHTML : '';
+                    let match = html.match(/(eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]+)/);
+                    if (match) return match[1];
+
+                    let bMatch = html.match(/bootstrap\(['"]([A-Za-z0-9+/=_-]{20,})['"]\)/);
+                    if (bMatch) {
+                        try {
+                            let raw = atob(bMatch[1]);
+                            let rawMatch = raw.match(/(eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]+)/);
+                            if (rawMatch) return rawMatch[1];
+                        } catch(e) {}
+                    }
+
+                    let inputs = document.querySelectorAll('input, textarea');
+                    for (let i = 0; i < inputs.length; i++) {
+                        let val = inputs[i].value;
+                        if (val && val.startsWith('eyJ') && val.split('.').length >= 3) {
+                            return val;
+                        }
+                    }
+                } catch(e) {
+                    return null;
+                }
+                return null;
+            })()
+        """.trimIndent()
+
+        popupView.evaluateJavascript(js) { res ->
+            val token = res?.trim('"', ' ', '\\', '\n', '\r')
+            if (!token.isNullOrEmpty() && token != "null" && token.startsWith("eyJ")) {
+                AppLogger.log(TAG, "Direct extraction found JWT! (len=${token.length})")
+                handleGoogleCredential(token)
+            }
+        }
+    }
+
     private fun hasValidAuthToken(): Boolean {
-        val cookies = CookieManager.getInstance().getCookie("https://x.com") ?: return false
+        val cookieManager = CookieManager.getInstance()
+        val cookies = (cookieManager.getCookie("https://x.com") ?: "") + ";" +
+                (cookieManager.getCookie("https://twitter.com") ?: "")
         for (cookie in cookies.split(";")) {
             val parts = cookie.trim().split("=", limit = 2)
             if (parts.size == 2 && parts[0] == "auth_token") {
