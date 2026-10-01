@@ -21,6 +21,8 @@ import android.os.Message
 import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
@@ -43,6 +45,8 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -79,6 +83,15 @@ class MainActivity : ComponentActivity() {
     private var currentPopupWebView: WebView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
+
+    private var tapCount = 0
+    private var lastTapTime = 0L
+    private var volumeDownCount = 0
+    private var lastVolumeDownTime = 0L
+
+    private val twoFingerRunnable = Runnable {
+        showDebugLogsDialog()
+    }
 
     companion object {
         private const val TAG = "XApp"
@@ -445,12 +458,14 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                AppLogger.log(TAG, "PageStarted: $url")
                 progressBar.visibility = View.VISIBLE
                 errorView.visibility = View.GONE
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                AppLogger.log(TAG, "PageFinished: $url")
                 progressBar.visibility = View.GONE
 
                 CookieManager.getInstance().flush()
@@ -461,7 +476,7 @@ class MainActivity : ComponentActivity() {
                     val path = uri.path ?: ""
                     if (path == "/i/flow/login" || path == "/login" || path == "/") {
                         if (hasValidAuthToken()) {
-                            Log.d(TAG, "Authenticated session detected on $path, navigating to home")
+                            AppLogger.log(TAG, "Authenticated session detected on $path, navigating to home")
                             view?.loadUrl("https://x.com/home")
                             return
                         }
@@ -493,10 +508,20 @@ class MainActivity : ComponentActivity() {
                 error: WebResourceError?
             ) {
                 super.onReceivedError(view, request, error)
+                AppLogger.log(TAG, "WebError [${error?.errorCode}]: ${error?.description} for ${request?.url}")
                 if (request?.isForMainFrame == true) {
                     progressBar.visibility = View.GONE
                     errorView.visibility = View.VISIBLE
                 }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?
+            ) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                AppLogger.log(TAG, "HttpError [${errorResponse?.statusCode}]: for ${request?.url}")
             }
 
             override fun shouldOverrideUrlLoading(
@@ -505,6 +530,7 @@ class MainActivity : ComponentActivity() {
             ): Boolean {
                 val uri = request?.url ?: return false
                 val scheme = uri.scheme?.lowercase() ?: ""
+                AppLogger.log(TAG, "Nav: $uri (mainFrame=${request.isForMainFrame})")
 
                 if (scheme != "http" && scheme != "https") {
                     return handleNonHttpScheme(this@MainActivity, uri, view)
@@ -536,7 +562,7 @@ class MainActivity : ComponentActivity() {
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                 if (consoleMessage != null) {
-                    Log.d(TAG, "Console [${consoleMessage.messageLevel()}]: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                    AppLogger.log("Console", "[${consoleMessage.messageLevel()}]: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
                 }
                 return super.onConsoleMessage(consoleMessage)
             }
@@ -555,6 +581,7 @@ class MainActivity : ComponentActivity() {
                 isUserGesture: Boolean,
                 resultMsg: Message?
             ): Boolean {
+                AppLogger.log(TAG, "onCreateWindow requested (isDialog=$isDialog, userGesture=$isUserGesture)")
                 popupDialog?.dismiss()
                 currentPopupWebView?.destroy()
                 val popupWebView = WebView(this@MainActivity)
@@ -567,10 +594,10 @@ class MainActivity : ComponentActivity() {
                     override fun onPageFinished(v: WebView?, url: String?) {
                         super.onPageFinished(v, url)
                         CookieManager.getInstance().flush()
-                        Log.d(TAG, "Popup finished: $url")
+                        AppLogger.log(TAG, "Popup finished: $url")
 
                         if (hasValidAuthToken()) {
-                            Log.d(TAG, "Popup has auth_token cookie, handing off to main view")
+                            AppLogger.log(TAG, "Popup has auth_token cookie, handing off to main view")
                             popupDialog?.dismiss()
                             popupDialog = null
                             webView.loadUrl("https://x.com/home")
@@ -586,12 +613,30 @@ class MainActivity : ComponentActivity() {
                                     host == "twitter.com" || host.endsWith(".twitter.com")
                             val path = uri.path ?: ""
                             if (isTwitter && (path == "/home" || path.startsWith("/home/"))) {
-                                Log.d(TAG, "Popup reached logged-in home, handing off to main view")
+                                AppLogger.log(TAG, "Popup reached logged-in home, handing off to main view")
                                 popupDialog?.dismiss()
                                 popupDialog = null
                                 webView.loadUrl("https://x.com/home")
                             }
                         }
+                    }
+
+                    override fun onReceivedError(
+                        v: WebView?,
+                        req: WebResourceRequest?,
+                        err: WebResourceError?
+                    ) {
+                        super.onReceivedError(v, req, err)
+                        AppLogger.log(TAG, "Popup WebError [${err?.errorCode}]: ${err?.description} for ${req?.url}")
+                    }
+
+                    override fun onReceivedHttpError(
+                        v: WebView?,
+                        req: WebResourceRequest?,
+                        res: WebResourceResponse?
+                    ) {
+                        super.onReceivedHttpError(v, req, res)
+                        AppLogger.log(TAG, "Popup HttpError [${res?.statusCode}]: for ${req?.url}")
                     }
 
                     override fun shouldOverrideUrlLoading(
@@ -600,6 +645,7 @@ class MainActivity : ComponentActivity() {
                     ): Boolean {
                         val uri = req?.url ?: return false
                         val scheme = uri.scheme?.lowercase() ?: ""
+                        AppLogger.log(TAG, "Popup Nav: $uri (mainFrame=${req.isForMainFrame})")
 
                         if (scheme != "http" && scheme != "https") {
                             return handleNonHttpScheme(this@MainActivity, uri, v)
@@ -630,7 +676,7 @@ class MainActivity : ComponentActivity() {
                 popupWebView.webChromeClient = object : WebChromeClient() {
                     override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                         if (consoleMessage != null) {
-                            Log.d(TAG, "PopupConsole [${consoleMessage.messageLevel()}]: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                            AppLogger.log("PopupConsole", "[${consoleMessage.messageLevel()}]: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
                         }
                         return super.onConsoleMessage(consoleMessage)
                     }
@@ -936,6 +982,81 @@ class MainActivity : ComponentActivity() {
                 }
             }
         })
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        if (ev != null) {
+            if (ev.pointerCount >= 2 && ev.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                mainHandler.postDelayed(twoFingerRunnable, 1500)
+            } else if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL || ev.pointerCount < 2) {
+                mainHandler.removeCallbacks(twoFingerRunnable)
+            }
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                val now = System.currentTimeMillis()
+                if (now - lastTapTime < 400 && ev.y < 250) {
+                    tapCount++
+                    if (tapCount >= 3) {
+                        tapCount = 0
+                        showDebugLogsDialog()
+                    }
+                } else {
+                    tapCount = 1
+                }
+                lastTapTime = now
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val now = System.currentTimeMillis()
+            if (now - lastVolumeDownTime < 600) {
+                volumeDownCount++
+                if (volumeDownCount >= 3) {
+                    volumeDownCount = 0
+                    showDebugLogsDialog()
+                    return true
+                }
+            } else {
+                volumeDownCount = 1
+            }
+            lastVolumeDownTime = now
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun showDebugLogsDialog() {
+        val logs = AppLogger.getAllLogs()
+        val savedFile = AppLogger.saveToFile(this)
+
+        val textView = TextView(this).apply {
+            text = if (logs.isBlank()) "No logs captured yet." else logs
+            textSize = 11f
+            setTextColor(0xFFE0E0E0.toInt())
+            setPadding(32, 24, 32, 24)
+            setTextIsSelectable(true)
+        }
+        val scrollView = ScrollView(this).apply {
+            addView(textView)
+        }
+
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Debug Logs")
+            .setView(scrollView)
+            .setPositiveButton("Copy All") { _, _ ->
+                copyToClipboard(logs)
+                Toast.makeText(this, "Logs copied to clipboard!", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Save to File") { _, _ ->
+                if (savedFile != null) {
+                    Toast.makeText(this, "Saved: ${savedFile.absolutePath}", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Failed to save log file", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
