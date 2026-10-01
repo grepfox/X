@@ -66,7 +66,7 @@ object GoogleAuthHelper {
         val jsonPayload = """{"provider":"google","id_token":"$idToken","state":"$state"}"""
         val encodedPayload = base64UrlEncode(jsonPayload.toByteArray(Charsets.UTF_8))
         val urlParam = URLEncoder.encode(encodedPayload, "UTF-8")
-        return "https://x.com/i/jf/onboarding/web?mode=sso&input_flow_data=$urlParam"
+        return "https://x.com/i/jf/onboarding/web/sso?mode=sso&input_flow_data=$urlParam"
     }
 
     fun extractJwtFromText(text: String): String? {
@@ -93,16 +93,25 @@ object GoogleAuthHelper {
             if (window.__cleanx_gsi_installed) return;
             window.__cleanx_gsi_installed = true;
 
-            // 1. Transparently rewrite broken /onboarding/web/sso to working /onboarding/web in all client fetch/XHR
+            // 1. Transparently rewrite broken /onboarding/web/sso API requests to working /onboarding/web
             try {
                 const origFetch = window.fetch;
                 if (origFetch) {
                     window.fetch = function(input, init) {
                         try {
-                            if (typeof input === 'string' && input.includes('/onboarding/web/sso')) {
-                                input = input.replace('/onboarding/web/sso', '/onboarding/web');
-                            } else if (input && typeof input.url === 'string' && input.url.includes('/onboarding/web/sso')) {
-                                input = new Request(input.url.replace('/onboarding/web/sso', '/onboarding/web'), input);
+                            let urlStr = (typeof input === 'string') ? input :
+                                         (input instanceof URL) ? input.href :
+                                         (input && input.url) ? input.url : '';
+                            if (urlStr.includes('/onboarding/web/sso')) {
+                                let fixedUrl = urlStr.replace('/onboarding/web/sso', '/onboarding/web');
+                                console.log('[CleanX] Rewrote JetFuel fetch from:', urlStr, 'to:', fixedUrl);
+                                if (typeof input === 'string') {
+                                    input = fixedUrl;
+                                } else if (input instanceof URL) {
+                                    input = new URL(fixedUrl);
+                                } else if (input && input.url) {
+                                    input = new Request(fixedUrl, input);
+                                }
                             }
                         } catch(e) {}
                         return origFetch.call(this, input, init);
@@ -118,30 +127,6 @@ object GoogleAuthHelper {
                     } catch(e) {}
                     return origXhrOpen.apply(this, arguments);
                 };
-
-                const origPushState = history.pushState;
-                if (origPushState) {
-                    history.pushState = function(state, title, url) {
-                        try {
-                            if (typeof url === 'string' && url.includes('/i/jf/onboarding/web/sso')) {
-                                url = url.replace('/i/jf/onboarding/web/sso', '/i/jf/onboarding/web');
-                            }
-                        } catch(e) {}
-                        return origPushState.call(this, state, title, url);
-                    };
-                }
-
-                const origReplaceState = history.replaceState;
-                if (origReplaceState) {
-                    history.replaceState = function(state, title, url) {
-                        try {
-                            if (typeof url === 'string' && url.includes('/i/jf/onboarding/web/sso')) {
-                                url = url.replace('/i/jf/onboarding/web/sso', '/i/jf/onboarding/web');
-                            }
-                        } catch(e) {}
-                        return origReplaceState.call(this, state, title, url);
-                    };
-                }
             } catch(e) {}
 
             // 2. Comprehensive error logging to capture exact failure reasons
@@ -257,7 +242,7 @@ object GoogleAuthHelper {
                     } catch(e) {
                         encoded = btoa(payload).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
                     }
-                    return 'https://x.com/i/jf/onboarding/web?mode=sso&input_flow_data=' + encodeURIComponent(encoded);
+                    return 'https://x.com/i/jf/onboarding/web/sso?mode=sso&input_flow_data=' + encodeURIComponent(encoded);
                 }
 
                 let ssoUrl = buildWorkingSsoUrl(cred);

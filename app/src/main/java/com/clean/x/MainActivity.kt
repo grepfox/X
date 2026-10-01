@@ -454,6 +454,12 @@ class MainActivity : ComponentActivity() {
                 if (AdBlocker.isAdUrl(url)) {
                     return AdBlocker.createEmptyResource()
                 }
+
+                if (url.contains("jf.x.com/onboarding/web/sso")) {
+                    val resp = handleJetFuelSsoRequest(request)
+                    if (resp != null) return resp
+                }
+
                 return super.shouldInterceptRequest(view, request)
             }
 
@@ -537,15 +543,6 @@ class MainActivity : ComponentActivity() {
 
                 if (scheme != "http" && scheme != "https") {
                     return handleNonHttpScheme(this@MainActivity, uri, view)
-                }
-
-                // Rewrite broken Twitter SSO redirects that trigger the "Please use X.com or official X apps" error
-                val urlStr = uri.toString()
-                if (urlStr.contains("/i/jf/onboarding/web/sso")) {
-                    val fixedUrl = urlStr.replace("/i/jf/onboarding/web/sso", "/i/jf/onboarding/web")
-                    AppLogger.log(TAG, "Rewriting broken /sso route to: $fixedUrl")
-                    view?.loadUrl(fixedUrl)
-                    return true
                 }
 
                 // Only main-frame navigations may escape to the external browser.
@@ -1061,6 +1058,68 @@ class MainActivity : ComponentActivity() {
                 AppLogger.log(TAG, "Direct extraction found JWT! (len=${token.length})")
                 handleGoogleCredential(token)
             }
+        }
+    }
+
+    private fun handleJetFuelSsoRequest(request: WebResourceRequest): WebResourceResponse? {
+        return try {
+            val originalUrl = request.url.toString()
+            val fixedUrl = originalUrl.replace("jf.x.com/onboarding/web/sso", "jf.x.com/onboarding/web")
+            AppLogger.log(TAG, "Intercepting JetFuel API: $originalUrl -> $fixedUrl")
+
+            val url = java.net.URL(fixedUrl)
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = request.method ?: "GET"
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+            conn.instanceFollowRedirects = true
+
+            // Forward request headers
+            for ((key, value) in request.requestHeaders) {
+                if (!key.equals("Host", ignoreCase = true)) {
+                    conn.setRequestProperty(key, value)
+                }
+            }
+
+            // Forward cookies for jf.x.com and x.com
+            val cookieManager = CookieManager.getInstance()
+            val cookies = (cookieManager.getCookie("https://x.com") ?: "") + "; " +
+                    (cookieManager.getCookie("https://jf.x.com") ?: "")
+            if (cookies.isNotBlank()) {
+                conn.setRequestProperty("Cookie", cookies)
+            }
+
+            conn.connect()
+
+            val responseCode = conn.responseCode
+            val responseMessage = conn.responseMessage ?: "OK"
+            val contentType = conn.contentType ?: "application/octet-stream"
+            val mimeType = contentType.substringBefore(";").trim()
+            val encoding = if (contentType.contains("charset=")) {
+                contentType.substringAfter("charset=").substringBefore(";").trim()
+            } else {
+                "UTF-8"
+            }
+
+            val responseHeaders = mutableMapOf<String, String>()
+            for ((key, values) in conn.headerFields) {
+                if (key != null && values.isNotEmpty()) {
+                    responseHeaders[key] = values.joinToString(", ")
+                    if (key.equals("Set-Cookie", ignoreCase = true)) {
+                        for (cookie in values) {
+                            cookieManager.setCookie("https://x.com", cookie)
+                            cookieManager.setCookie("https://jf.x.com", cookie)
+                        }
+                    }
+                }
+            }
+            cookieManager.flush()
+
+            val inputStream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+            WebResourceResponse(mimeType, encoding, responseCode, responseMessage, responseHeaders, inputStream)
+        } catch (e: Exception) {
+            AppLogger.log(TAG, "Error intercepting JetFuel SSO: ${e.message}")
+            null
         }
     }
 
