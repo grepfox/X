@@ -76,12 +76,13 @@ class MainActivity : ComponentActivity() {
     private val targetUrl = "https://x.com"
     private var isFirstLoad = true
     private var popupDialog: Dialog? = null
+    private var currentPopupWebView: WebView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
 
     companion object {
         private const val TAG = "XApp"
-        const val USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+        const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
         internal fun isInternalOrAuthHost(host: String): Boolean {
             val h = host.lowercase()
@@ -251,6 +252,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        WebView.setWebContentsDebuggingEnabled(true)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 
@@ -458,8 +460,7 @@ class MainActivity : ComponentActivity() {
                     val uri = Uri.parse(url)
                     val path = uri.path ?: ""
                     if (path == "/i/flow/login" || path == "/login" || path == "/") {
-                        val cookies = CookieManager.getInstance().getCookie("https://x.com") ?: ""
-                        if (cookies.contains("auth_token")) {
+                        if (hasValidAuthToken()) {
                             Log.d(TAG, "Authenticated session detected on $path, navigating to home")
                             view?.loadUrl("https://x.com/home")
                             return
@@ -534,7 +535,10 @@ class MainActivity : ComponentActivity() {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                return true
+                if (consoleMessage != null) {
+                    Log.d(TAG, "Console [${consoleMessage.messageLevel()}]: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                }
+                return super.onConsoleMessage(consoleMessage)
             }
 
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -551,7 +555,10 @@ class MainActivity : ComponentActivity() {
                 isUserGesture: Boolean,
                 resultMsg: Message?
             ): Boolean {
+                popupDialog?.dismiss()
+                currentPopupWebView?.destroy()
                 val popupWebView = WebView(this@MainActivity)
+                currentPopupWebView = popupWebView
                 configureWebSettings(popupWebView.settings)
                 popupWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(popupWebView, true)
@@ -562,8 +569,7 @@ class MainActivity : ComponentActivity() {
                         CookieManager.getInstance().flush()
                         Log.d(TAG, "Popup finished: $url")
 
-                        val cookies = CookieManager.getInstance().getCookie("https://x.com") ?: ""
-                        if (cookies.contains("auth_token")) {
+                        if (hasValidAuthToken()) {
                             Log.d(TAG, "Popup has auth_token cookie, handing off to main view")
                             popupDialog?.dismiss()
                             popupDialog = null
@@ -622,6 +628,13 @@ class MainActivity : ComponentActivity() {
                 }
 
                 popupWebView.webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                        if (consoleMessage != null) {
+                            Log.d(TAG, "PopupConsole [${consoleMessage.messageLevel()}]: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                        }
+                        return super.onConsoleMessage(consoleMessage)
+                    }
+
                     override fun onCreateWindow(
                         w: WebView?,
                         isDialog: Boolean,
@@ -641,7 +654,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                popupDialog?.dismiss()
                 popupDialog = Dialog(this@MainActivity, android.R.style.Theme_Black_NoTitleBar_Fullscreen).apply {
                     setContentView(popupWebView, ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -649,21 +661,6 @@ class MainActivity : ComponentActivity() {
                     ))
                     setOnDismissListener {
                         CookieManager.getInstance().flush()
-                        val cookies = CookieManager.getInstance().getCookie("https://x.com") ?: ""
-                        if (cookies.contains("auth_token")) {
-                            Log.d(TAG, "Auth token detected upon popup dismissal, navigating to home")
-                            webView.loadUrl("https://x.com/home")
-                        } else {
-                            mainHandler.postDelayed({
-                                CookieManager.getInstance().flush()
-                                val delayedCookies = CookieManager.getInstance().getCookie("https://x.com") ?: ""
-                                if (delayedCookies.contains("auth_token")) {
-                                    Log.d(TAG, "Auth token detected shortly after popup dismissal, navigating to home")
-                                    webView.loadUrl("https://x.com/home")
-                                }
-                            }, 1200)
-                        }
-                        popupWebView.destroy()
                     }
                     show()
                 }
@@ -895,6 +892,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun hasValidAuthToken(): Boolean {
+        val cookies = CookieManager.getInstance().getCookie("https://x.com") ?: return false
+        for (cookie in cookies.split(";")) {
+            val parts = cookie.trim().split("=", limit = 2)
+            if (parts.size == 2 && parts[0] == "auth_token") {
+                val value = parts[1].trim('"', ' ')
+                return value.isNotEmpty() && value != "deleted"
+            }
+        }
+        return false
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebSettings(settings: WebSettings) {
         settings.javaScriptEnabled = true
@@ -947,6 +956,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         popupDialog?.dismiss()
+        currentPopupWebView?.destroy()
+        currentPopupWebView = null
         webView.destroy()
         backgroundExecutor.shutdown()
         super.onDestroy()

@@ -8,11 +8,10 @@ class AdBlockerTest {
 
     @Test
     fun testIsAdUrl_blocksKnownAdDomains() {
-        assertTrue(AdBlocker.isAdUrl("https://analytics.twitter.com/1/jot"))
-        assertTrue(AdBlocker.isAdUrl("https://ads-api.twitter.com/graphql"))
-        assertTrue(AdBlocker.isAdUrl("https://p.twitter.com/t.gif"))
-        assertTrue(AdBlocker.isAdUrl("https://stats.g.doubleclick.net/r/collect"))
-        assertTrue(AdBlocker.isAdUrl("https://x.com/i/ads/attribution"))
+        assertTrue(AdBlocker.isAdUrl("https://doubleclick.net/ad"))
+        assertTrue(AdBlocker.isAdUrl("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"))
+        assertTrue(AdBlocker.isAdUrl("https://adnxs.com/seg?add=1"))
+        assertTrue(AdBlocker.isAdUrl("https://criteo.com/delivery/ajs.php"))
     }
 
     @Test
@@ -21,6 +20,10 @@ class AdBlockerTest {
         assertFalse(AdBlocker.isAdUrl("https://twitter.com/login"))
         assertFalse(AdBlocker.isAdUrl("https://abs.twimg.com/responsive-web/client-web/main.js"))
         assertFalse(AdBlocker.isAdUrl("https://pbs.twimg.com/media/sample.jpg"))
+        assertFalse(AdBlocker.isAdUrl("https://analytics.twitter.com/1/jot"))
+        assertFalse(AdBlocker.isAdUrl("https://ads-api.twitter.com/graphql"))
+        assertFalse(AdBlocker.isAdUrl("https://p.twitter.com/t.gif"))
+        assertFalse(AdBlocker.isAdUrl("https://jf.x.com/api/sso"))
     }
 
     @Test

@@ -7,22 +7,13 @@ import java.net.URI
 object AdBlocker {
 
     private val BLOCKED_DOMAINS = hashSetOf(
-        "analytics.twitter.com",
-        "ads-api.twitter.com",
-        "ads-twitter.com",
-        "p.twitter.com",
         "doubleclick.net",
         "googlesyndication.com",
-        "google-analytics.com",
-        "googletagmanager.com",
-        "app.adjust.com",
         "adnxs.com",
         "criteo.com",
         "scorecardresearch.com",
-        "branch.io",
         "adservice.google.com",
-        "pagead2.googlesyndication.com",
-        "stats.g.doubleclick.net"
+        "pagead2.googlesyndication.com"
     )
 
     fun isAdUrl(url: String): Boolean {
@@ -30,6 +21,8 @@ object AdBlocker {
         if (lowerUrl.contains("/flow/login") ||
             lowerUrl.contains("/onboarding/") ||
             lowerUrl.contains("/i/flow/") ||
+            lowerUrl.contains("/i/api/") ||
+            lowerUrl.contains("/single_sign_on") ||
             lowerUrl.contains("accounts.google.") ||
             lowerUrl.contains("smartlock.google.") ||
             lowerUrl.contains("apis.google.com") ||
@@ -47,10 +40,13 @@ object AdBlocker {
         return try {
             val uri = URI(url)
             val host = uri.host?.lowercase() ?: return false
-            BLOCKED_DOMAINS.any { blocked -> host == blocked || host.endsWith(".$blocked") } ||
-                    url.contains("/i/ads/") ||
-                    url.contains("/telemetry/") ||
-                    url.contains("placementTracking")
+
+            // Never block internal X/Twitter services or auth endpoints
+            if (MainActivity.isInternalOrAuthHost(host)) {
+                return false
+            }
+
+            BLOCKED_DOMAINS.any { blocked -> host == blocked || host.endsWith(".$blocked") }
         } catch (_: Exception) {
             false
         }
