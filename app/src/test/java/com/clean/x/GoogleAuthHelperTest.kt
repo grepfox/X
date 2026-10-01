@@ -30,7 +30,7 @@ class GoogleAuthHelperTest {
         val testState = "fixed-uuid-state-1234"
         val ssoUrl = GoogleAuthHelper.buildSsoUrl(testJwt, testState)
 
-        assertTrue(ssoUrl.startsWith("https://x.com/i/flow/single_sign_on?input_flow_data="))
+        assertTrue(ssoUrl.startsWith("https://x.com/i/jf/onboarding/web?mode=sso&input_flow_data="))
 
         val param = ssoUrl.substringAfter("input_flow_data=")
         val decodedParam = URLDecoder.decode(param, "UTF-8")

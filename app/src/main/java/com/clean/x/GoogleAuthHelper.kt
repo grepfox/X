@@ -66,7 +66,7 @@ object GoogleAuthHelper {
         val jsonPayload = """{"provider":"google","id_token":"$idToken","state":"$state"}"""
         val encodedPayload = base64UrlEncode(jsonPayload.toByteArray(Charsets.UTF_8))
         val urlParam = URLEncoder.encode(encodedPayload, "UTF-8")
-        return "https://x.com/i/flow/single_sign_on?input_flow_data=$urlParam"
+        return "https://x.com/i/jf/onboarding/web?mode=sso&input_flow_data=$urlParam"
     }
 
     fun extractJwtFromText(text: String): String? {
@@ -93,57 +93,148 @@ object GoogleAuthHelper {
             if (window.__cleanx_gsi_installed) return;
             window.__cleanx_gsi_installed = true;
 
-            function hookId(idObj) {
+            // 1. Transparently rewrite broken /onboarding/web/sso to working /onboarding/web in all client fetch/XHR
+            try {
+                const origFetch = window.fetch;
+                if (origFetch) {
+                    window.fetch = function(input, init) {
+                        try {
+                            if (typeof input === 'string' && input.includes('/onboarding/web/sso')) {
+                                input = input.replace('/onboarding/web/sso', '/onboarding/web');
+                            } else if (input && typeof input.url === 'string' && input.url.includes('/onboarding/web/sso')) {
+                                input = new Request(input.url.replace('/onboarding/web/sso', '/onboarding/web'), input);
+                            }
+                        } catch(e) {}
+                        return origFetch.call(this, input, init);
+                    };
+                }
+
+                const origXhrOpen = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    try {
+                        if (typeof url === 'string' && url.includes('/onboarding/web/sso')) {
+                            arguments[1] = url.replace('/onboarding/web/sso', '/onboarding/web');
+                        }
+                    } catch(e) {}
+                    return origXhrOpen.apply(this, arguments);
+                };
+
+                const origPushState = history.pushState;
+                if (origPushState) {
+                    history.pushState = function(state, title, url) {
+                        try {
+                            if (typeof url === 'string' && url.includes('/i/jf/onboarding/web/sso')) {
+                                url = url.replace('/i/jf/onboarding/web/sso', '/i/jf/onboarding/web');
+                            }
+                        } catch(e) {}
+                        return origPushState.call(this, state, title, url);
+                    };
+                }
+
+                const origReplaceState = history.replaceState;
+                if (origReplaceState) {
+                    history.replaceState = function(state, title, url) {
+                        try {
+                            if (typeof url === 'string' && url.includes('/i/jf/onboarding/web/sso')) {
+                                url = url.replace('/i/jf/onboarding/web/sso', '/i/jf/onboarding/web');
+                            }
+                        } catch(e) {}
+                        return origReplaceState.call(this, state, title, url);
+                    };
+                }
+            } catch(e) {}
+
+            // 2. Comprehensive error logging to capture exact failure reasons
+            try {
+                window.addEventListener('error', function(e) {
+                    console.log('[CleanX-Error] ' + (e.message || e.error) + (e.error && e.error.stack ? '\n' + e.error.stack : ''));
+                });
+                window.addEventListener('unhandledrejection', function(e) {
+                    console.log('[CleanX-UnhandledRejection] ' + (e.reason ? (e.reason.message || e.reason) + (e.reason.stack ? '\n' + e.reason.stack : '') : ''));
+                });
+            } catch(e) {}
+
+            // 3. Deep hook into Google GSI initialization to capture callback and client instance
+            function hookIdObject(idObj) {
                 if (!idObj || idObj.__cleanx_hooked) return;
                 idObj.__cleanx_hooked = true;
-                let originalInit = idObj.initialize;
-                idObj.initialize = function(config) {
-                    console.log("[CleanX] Captured google.accounts.id.initialize");
-                    if (config && typeof config.callback === 'function') {
-                        window.__x_gsi_callback = config.callback;
-                        console.log("[CleanX] Successfully hooked GSI callback!");
-                    }
-                    if (originalInit) {
-                        return originalInit.apply(this, arguments);
-                    }
-                };
-            }
 
-            if (window.google && window.google.accounts && window.google.accounts.id) {
-                hookId(window.google.accounts.id);
-            } else {
-                let _google = window.google;
+                let originalInit = idObj.initialize;
+                function wrapInit(fn) {
+                    return function(config) {
+                        console.log('[CleanX] Captured google.accounts.id.initialize!');
+                        if (config && typeof config.callback === 'function') {
+                            window.__x_gsi_callback = config.callback;
+                            console.log('[CleanX] Successfully hooked GSI callback!');
+                        }
+                        if (fn) {
+                            return fn.apply(this, arguments);
+                        }
+                    };
+                }
+
                 try {
-                    Object.defineProperty(window, 'google', {
+                    Object.defineProperty(idObj, 'initialize', {
                         configurable: true,
                         enumerable: true,
-                        get: function() { return _google; },
-                        set: function(val) {
-                            _google = val;
-                            if (_google) {
-                                if (_google.accounts && _google.accounts.id) {
-                                    hookId(_google.accounts.id);
-                                } else {
-                                    let _accounts = _google.accounts;
-                                    try {
-                                        Object.defineProperty(_google, 'accounts', {
-                                            configurable: true,
-                                            enumerable: true,
-                                            get: function() { return _accounts; },
-                                            set: function(accVal) {
-                                                _accounts = accVal;
-                                                if (_accounts && _accounts.id) {
-                                                    hookId(_accounts.id);
-                                                }
-                                            }
-                                        });
-                                    } catch(e) {}
-                                }
-                            }
+                        get: function() { return originalInit; },
+                        set: function(newFn) {
+                            originalInit = wrapInit(newFn);
                         }
                     });
-                } catch(e) {}
+                    if (originalInit) {
+                        idObj.initialize = originalInit;
+                    }
+                } catch(e) {
+                    if (originalInit) {
+                        idObj.initialize = wrapInit(originalInit);
+                    }
+                }
             }
+
+            try {
+                window.google = window.google || {};
+                let _accounts = window.google.accounts || {};
+                let _id = _accounts.id || {};
+
+                hookIdObject(_id);
+
+                Object.defineProperty(_accounts, 'id', {
+                    configurable: true,
+                    enumerable: true,
+                    get: function() { return _id; },
+                    set: function(val) {
+                        _id = val;
+                        hookIdObject(_id);
+                    }
+                });
+
+                Object.defineProperty(window.google, 'accounts', {
+                    configurable: true,
+                    enumerable: true,
+                    get: function() { return _accounts; },
+                    set: function(val) {
+                        _accounts = val;
+                        if (_accounts) {
+                            if (_accounts.id) {
+                                _id = _accounts.id;
+                                hookIdObject(_id);
+                            }
+                            try {
+                                Object.defineProperty(_accounts, 'id', {
+                                    configurable: true,
+                                    enumerable: true,
+                                    get: function() { return _id; },
+                                    set: function(idVal) {
+                                        _id = idVal;
+                                        hookIdObject(_id);
+                                    }
+                                });
+                            } catch(e) {}
+                        }
+                    }
+                });
+            } catch(e) {}
         })();
     """.trimIndent()
 
@@ -232,18 +323,31 @@ object GoogleAuthHelper {
         return """
             (function() {
                 let cred = '$credential';
-                let calledCallback = false;
+                let called = false;
+
+                // Strategy 1: Captured initialize callback
                 if (typeof window.__x_gsi_callback === 'function') {
                     try {
                         console.log("[CleanX] Invoking window.__x_gsi_callback with Google credential");
                         window.__x_gsi_callback({ credential: cred, select_by: 'btn' });
-                        calledCallback = true;
+                        called = true;
                     } catch(e) {
                         console.error("[CleanX] Error in __x_gsi_callback:", e);
                     }
                 }
 
-                function buildSsoUrl(idToken) {
+                // Strategy 2: Google GSI Client instance callback
+                if (!called && window.__G_ID_CLIENT__ && typeof window.__G_ID_CLIENT__.callback === 'function') {
+                    try {
+                        console.log("[CleanX] Invoking window.__G_ID_CLIENT__.callback with Google credential");
+                        window.__G_ID_CLIENT__.callback.call(window.__G_ID_CLIENT__, { credential: cred, select_by: 'btn' });
+                        called = true;
+                    } catch(e) {
+                        console.error("[CleanX] Error in __G_ID_CLIENT__.callback:", e);
+                    }
+                }
+
+                function buildWorkingSsoUrl(idToken) {
                     let payload = JSON.stringify({
                         provider: 'google',
                         id_token: idToken,
@@ -258,22 +362,22 @@ object GoogleAuthHelper {
                     } catch(e) {
                         encoded = btoa(payload).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
                     }
-                    return 'https://x.com/i/flow/single_sign_on?input_flow_data=' + encodeURIComponent(encoded);
+                    return 'https://x.com/i/jf/onboarding/web?mode=sso&input_flow_data=' + encodeURIComponent(encoded);
                 }
 
-                if (!calledCallback) {
-                    let ssoUrl = buildSsoUrl(cred);
-                    console.log("[CleanX] Direct navigation to SSO URL:", ssoUrl);
+                if (!called) {
+                    let ssoUrl = buildWorkingSsoUrl(cred);
+                    console.log("[CleanX] Direct navigation to working SSO URL:", ssoUrl);
                     window.location.assign(ssoUrl);
                 } else {
                     setTimeout(function() {
                         let path = window.location.pathname;
-                        if (path.includes('login') || path === '/') {
-                            let ssoUrl = buildSsoUrl(cred);
-                            console.log("[CleanX] Callback did not navigate away, triggering direct SSO URL:", ssoUrl);
+                        if (path.includes('login') || path === '/' || path.includes('/sso')) {
+                            let ssoUrl = buildWorkingSsoUrl(cred);
+                            console.log("[CleanX] Callback check after delay, navigating to working SSO URL:", ssoUrl);
                             window.location.assign(ssoUrl);
                         }
-                    }, 800);
+                    }, 1200);
                 }
             })();
         """.trimIndent()

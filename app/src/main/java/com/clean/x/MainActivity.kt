@@ -472,11 +472,11 @@ class MainActivity : ComponentActivity() {
 
                 CookieManager.getInstance().flush()
 
-                // If user is authenticated but on login/landing page, navigate forward to /home
+                // If user is authenticated, navigate forward to /home
                 if (url != null) {
                     val uri = Uri.parse(url)
                     val path = uri.path ?: ""
-                    if (path == "/i/flow/login" || path == "/login" || path == "/") {
+                    if (path == "/i/flow/login" || path == "/login" || path == "/" || path.startsWith("/i/jf/onboarding")) {
                         if (hasValidAuthToken()) {
                             AppLogger.log(TAG, "Authenticated session detected on $path, navigating to home")
                             view?.loadUrl("https://x.com/home")
@@ -537,6 +537,15 @@ class MainActivity : ComponentActivity() {
 
                 if (scheme != "http" && scheme != "https") {
                     return handleNonHttpScheme(this@MainActivity, uri, view)
+                }
+
+                // Rewrite broken Twitter SSO redirects that trigger the "Please use X.com or official X apps" error
+                val urlStr = uri.toString()
+                if (urlStr.contains("/i/jf/onboarding/web/sso")) {
+                    val fixedUrl = urlStr.replace("/i/jf/onboarding/web/sso", "/i/jf/onboarding/web")
+                    AppLogger.log(TAG, "Rewriting broken /sso route to: $fixedUrl")
+                    view?.loadUrl(fixedUrl)
+                    return true
                 }
 
                 // Only main-frame navigations may escape to the external browser.
@@ -998,6 +1007,20 @@ class MainActivity : ComponentActivity() {
         webView.evaluateJavascript(js) { res ->
             AppLogger.log(TAG, "Google credential delivery eval result: $res")
         }
+
+        var checkCount = 0
+        val checkAuthRunnable = object : Runnable {
+            override fun run() {
+                checkCount++
+                if (hasValidAuthToken()) {
+                    AppLogger.log(TAG, "Auth token detected after Google credential handoff! Navigating to home...")
+                    webView.loadUrl("https://x.com/home")
+                } else if (checkCount < 16) {
+                    mainHandler.postDelayed(this, 500)
+                }
+            }
+        }
+        mainHandler.postDelayed(checkAuthRunnable, 500)
     }
 
     private fun extractGoogleCredentialDirectly(popupView: WebView?) {
