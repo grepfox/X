@@ -141,6 +141,119 @@ object GoogleAuthHelper {
         })();
     """.trimIndent()
 
+    // Captures the REAL X SSO/onboarding network handshake (method, url, request body, status,
+    // response body) and pipes it to the native AndroidNetLog bridge. shouldInterceptRequest
+    // cannot see POST bodies, so this JS wrapper is the only way to observe the flow_token +
+    // credential submission that establishes (or rejects) the session.
+    val NET_LOG_SCRIPT: String = """
+        (function() {
+            if (window.__cleanx_netlog_installed) return;
+            window.__cleanx_netlog_installed = true;
+
+            var MAX = 6000;
+            function interesting(u) {
+                if (!u) return false;
+                u = ('' + u).toLowerCase();
+                return u.indexOf('onboarding') >= 0 ||
+                       u.indexOf('task.json') >= 0 ||
+                       u.indexOf('jf.x.com') >= 0 ||
+                       u.indexOf('/sso') >= 0 ||
+                       u.indexOf('js_instrumentation') >= 0 ||
+                       u.indexOf('guest') >= 0 ||
+                       u.indexOf('oauth2') >= 0 ||
+                       u.indexOf('accounts.google.com/gsi') >= 0;
+            }
+            function trunc(s) {
+                if (s == null) return '';
+                s = '' + s;
+                return s.length > MAX ? s.substring(0, MAX) + '...<' + s.length + 'b>' : s;
+            }
+            function emit(obj) {
+                try {
+                    var line = JSON.stringify(obj);
+                    if (window.AndroidNetLog && window.AndroidNetLog.log) {
+                        window.AndroidNetLog.log(line);
+                    } else {
+                        console.log('[NetLog] ' + line);
+                    }
+                } catch (e) {}
+            }
+            function bodyToStr(body) {
+                try {
+                    if (body == null) return '';
+                    if (typeof body === 'string') return body;
+                    if (body instanceof URLSearchParams) return body.toString();
+                    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+                        var parts = [];
+                        body.forEach(function(v, k) { parts.push(k + '=' + (typeof v === 'string' ? v : '[file]')); });
+                        return parts.join('&');
+                    }
+                    return '[' + (body.constructor ? body.constructor.name : typeof body) + ']';
+                } catch (e) { return '[unserializable]'; }
+            }
+
+            // ---- fetch ----
+            try {
+                var origFetch = window.fetch;
+                if (origFetch) {
+                    window.fetch = function(input, init) {
+                        var url = (typeof input === 'string') ? input :
+                                  (input instanceof URL) ? input.href :
+                                  (input && input.url) ? input.url : '';
+                        var method = (init && init.method) || (input && input.method) || 'GET';
+                        var reqBody = init && init.body ? bodyToStr(init.body) : '';
+                        var track = interesting(url);
+                        if (track) {
+                            emit({ k: 'fetch-req', method: method, url: url, body: trunc(reqBody) });
+                        }
+                        var p = origFetch.call(this, input, init);
+                        if (track) {
+                            p.then(function(resp) {
+                                try {
+                                    var c = resp.clone();
+                                    c.text().then(function(t) {
+                                        emit({ k: 'fetch-res', url: url, status: resp.status, body: trunc(t) });
+                                    }).catch(function() {
+                                        emit({ k: 'fetch-res', url: url, status: resp.status, body: '[unreadable]' });
+                                    });
+                                } catch (e) {
+                                    emit({ k: 'fetch-res', url: url, status: resp.status, body: '[clone-failed]' });
+                                }
+                            }).catch(function(err) {
+                                emit({ k: 'fetch-err', url: url, error: '' + err });
+                            });
+                        }
+                        return p;
+                    };
+                }
+            } catch (e) {}
+
+            // ---- XMLHttpRequest ----
+            try {
+                var origOpen = XMLHttpRequest.prototype.open;
+                var origSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    this.__cleanx_method = method;
+                    this.__cleanx_url = url;
+                    this.__cleanx_track = interesting(url);
+                    return origOpen.apply(this, arguments);
+                };
+                XMLHttpRequest.prototype.send = function(body) {
+                    var self = this;
+                    if (self.__cleanx_track) {
+                        emit({ k: 'xhr-req', method: self.__cleanx_method, url: self.__cleanx_url, body: trunc(bodyToStr(body)) });
+                        self.addEventListener('loadend', function() {
+                            var rt = '';
+                            try { rt = (self.responseType === '' || self.responseType === 'text') ? self.responseText : '[' + self.responseType + ']'; } catch (e) { rt = '[unreadable]'; }
+                            emit({ k: 'xhr-res', url: self.__cleanx_url, status: self.status, body: trunc(rt) });
+                        });
+                    }
+                    return origSend.apply(this, arguments);
+                };
+            } catch (e) {}
+        })();
+    """.trimIndent()
+
     val POPUP_BRIDGE_SCRIPT: String = """
         (function() {
             function report(token) {

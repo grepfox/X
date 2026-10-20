@@ -412,6 +412,13 @@ class MainActivity : ComponentActivity() {
             }
         }, "AndroidMediaHandler")
 
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun log(line: String) {
+                AppLogger.log("XNet", line)
+            }
+        }, "AndroidNetLog")
+
         webView.setOnLongClickListener {
             val result = webView.hitTestResult
             val extra = result.extra
@@ -455,6 +462,13 @@ class MainActivity : ComponentActivity() {
                     return AdBlocker.createEmptyResource()
                 }
 
+                val lu = url.lowercase()
+                if (lu.contains("onboarding") || lu.contains("task.json") ||
+                    lu.contains("jf.x.com") || lu.contains("/sso") ||
+                    lu.contains("js_instrumentation") || lu.contains("oauth2")) {
+                    AppLogger.log("XNet-Native", "${request.method} $url hdrs=${request.requestHeaders}")
+                }
+
                 if (url.contains("jf.x.com/onboarding/web/sso")) {
                     val resp = handleJetFuelSsoRequest(request)
                     if (resp != null) return resp
@@ -469,6 +483,7 @@ class MainActivity : ComponentActivity() {
                 progressBar.visibility = View.VISIBLE
                 errorView.visibility = View.GONE
                 view?.evaluateJavascript(GoogleAuthHelper.MAIN_GSI_HOOK_SCRIPT, null)
+                view?.evaluateJavascript(GoogleAuthHelper.NET_LOG_SCRIPT, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -492,6 +507,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 view?.evaluateJavascript(GoogleAuthHelper.MAIN_GSI_HOOK_SCRIPT, null)
+                view?.evaluateJavascript(GoogleAuthHelper.NET_LOG_SCRIPT, null)
                 view?.evaluateJavascript(AdBlocker.AD_BLOCK_SCRIPT, null)
                 view?.evaluateJavascript(MEDIA_INSPECTION_SCRIPT, null)
 
@@ -609,11 +625,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }, "AndroidGoogleBridge")
 
+                popupWebView.addJavascriptInterface(object {
+                    @JavascriptInterface
+                    fun log(line: String) {
+                        AppLogger.log("XNet-Popup", line)
+                    }
+                }, "AndroidNetLog")
+
                 popupWebView.webViewClient = object : WebViewClient() {
                     override fun onPageStarted(v: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(v, url, favicon)
                         AppLogger.log(TAG, "Popup started: $url")
                         v?.evaluateJavascript(GoogleAuthHelper.POPUP_BRIDGE_SCRIPT, null)
+                        v?.evaluateJavascript(GoogleAuthHelper.NET_LOG_SCRIPT, null)
                     }
 
                     override fun onPageFinished(v: WebView?, url: String?) {
@@ -621,6 +645,7 @@ class MainActivity : ComponentActivity() {
                         CookieManager.getInstance().flush()
                         AppLogger.log(TAG, "Popup finished: $url")
                         v?.evaluateJavascript(GoogleAuthHelper.POPUP_BRIDGE_SCRIPT, null)
+                        v?.evaluateJavascript(GoogleAuthHelper.NET_LOG_SCRIPT, null)
 
                         if (url != null && (url.contains("gsi/transform") || url.contains("accounts.google.com"))) {
                             extractGoogleCredentialDirectly(v)
