@@ -25,6 +25,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
@@ -769,6 +770,22 @@ class MainActivity : ComponentActivity() {
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     ))
+                    // Keep the Google popup out of the notch / system bars. The fullscreen dialog
+                    // draws edge-to-edge, so pad the WebView by the system-bar + display-cutout
+                    // insets (matches how the main screen handles the status bar).
+                    window?.let { w ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            w.attributes.layoutInDisplayCutoutMode =
+                                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                        }
+                    }
+                    ViewCompat.setOnApplyWindowInsetsListener(popupWebView) { v, insets ->
+                        val bars = insets.getInsets(
+                            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+                        )
+                        v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                        insets
+                    }
                     setOnDismissListener {
                         CookieManager.getInstance().flush()
                     }
