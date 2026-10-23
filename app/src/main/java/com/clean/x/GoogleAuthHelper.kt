@@ -93,41 +93,10 @@ object GoogleAuthHelper {
             if (window.__cleanx_gsi_installed) return;
             window.__cleanx_gsi_installed = true;
 
-            // 1. Transparently rewrite broken /onboarding/web/sso API requests to working /onboarding/web
-            try {
-                const origFetch = window.fetch;
-                if (origFetch) {
-                    window.fetch = function(input, init) {
-                        try {
-                            let urlStr = (typeof input === 'string') ? input :
-                                         (input instanceof URL) ? input.href :
-                                         (input && input.url) ? input.url : '';
-                            if (urlStr.includes('/onboarding/web/sso')) {
-                                let fixedUrl = urlStr.replace('/onboarding/web/sso', '/onboarding/web');
-                                console.log('[CleanX] Rewrote JetFuel fetch from:', urlStr, 'to:', fixedUrl);
-                                if (typeof input === 'string') {
-                                    input = fixedUrl;
-                                } else if (input instanceof URL) {
-                                    input = new URL(fixedUrl);
-                                } else if (input && input.url) {
-                                    input = new Request(fixedUrl, input);
-                                }
-                            }
-                        } catch(e) {}
-                        return origFetch.call(this, input, init);
-                    };
-                }
-
-                const origXhrOpen = XMLHttpRequest.prototype.open;
-                XMLHttpRequest.prototype.open = function(method, url) {
-                    try {
-                        if (typeof url === 'string' && url.includes('/onboarding/web/sso')) {
-                            arguments[1] = url.replace('/onboarding/web/sso', '/onboarding/web');
-                        }
-                    } catch(e) {}
-                    return origXhrOpen.apply(this, arguments);
-                };
-            } catch(e) {}
+            // 1. [DISABLED EXPERIMENT] The /onboarding/web/sso -> /onboarding/web rewrite was
+            // redirecting the credential-consuming SSO subtask call to the generic onboarding
+            // entry, so X never created a session. Let the genuine /sso backend call through.
+            // The NET_LOG_SCRIPT will capture whatever /onboarding/web/sso actually returns.
 
             // 2. Comprehensive error logging to capture exact failure reasons
             try {

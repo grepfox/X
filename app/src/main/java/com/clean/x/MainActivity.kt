@@ -469,10 +469,13 @@ class MainActivity : ComponentActivity() {
                     AppLogger.log("XNet-Native", "${request.method} $url hdrs=${request.requestHeaders}")
                 }
 
-                if (url.contains("jf.x.com/onboarding/web/sso")) {
-                    val resp = handleJetFuelSsoRequest(request)
-                    if (resp != null) return resp
-                }
+                // [DISABLED EXPERIMENT] Previously proxied/rewrote jf.x.com/onboarding/web/sso to
+                // /onboarding/web, which dropped the SSO credential handoff. Let it pass through
+                // natively so X's own SSO subtask runs and can set the session cookie.
+                // if (url.contains("jf.x.com/onboarding/web/sso")) {
+                //     val resp = handleJetFuelSsoRequest(request)
+                //     if (resp != null) return resp
+                // }
 
                 return super.shouldInterceptRequest(view, request)
             }
